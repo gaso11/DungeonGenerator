@@ -21,18 +21,20 @@ class Tile:
 class Assets:
     def __init__(self):
         # Sheets
-        self.Sheet = SpriteSheet("data/reptileSheet.png")
-        self.Sheet2 = SpriteSheet("data/aquaticSheet.png")
+        self.players = SpriteSheet("data/graphics/characters/player.png")
+        self.enemies = SpriteSheet("data/graphics/characters/reptile.png")
+        self.walls = SpriteSheet("data/graphics/objects/wall.png")
+        self.floors = SpriteSheet("data/graphics/objects/floor.png")
 
         # Animations
-        self.player = self.Sheet.getAnimation('o', 5, 16, 16, 2, (32, 32))
-        self.enemy = self.Sheet2.getAnimation('k', 1, 16, 16, 2, (32, 32))
+        self.player = self.players.getAnimation('m', 4, 16, 16, 2, (32, 32))
+        self.enemy = self.enemies.getAnimation('e', 5, 16, 16, 2, (32, 32))
 
         # Sprites
-        self.wall = pygame.image.load("data/wall2.jpg")
-        self.wallSeen = pygame.image.load("data/wallunseen2.png")
-        self.floor = pygame.image.load("data/floor.jpg")
-        self.floorSeen = pygame.image.load("data/floorunseen2.png")
+        self.wall = self.walls.getImage('d', 4, 16, 16, (32, 32))[0]
+        self.wallSeen = self.walls.getImage('d', 13, 16, 16, (32, 32))[0]
+        self.floor = self.floors.getImage('b', 5, 16, 16, (32, 32))[0]
+        self.floorSeen = self.floors.getImage('b', 14, 16, 16, (32, 32))[0]
 
 
 class Actor:
@@ -87,7 +89,6 @@ class Actor:
 
 class GameObject:
     def __init__(self):
-        self.currentMap = createMap()
         self.currentObjects = []
         self.messageHistory = []
 
@@ -134,6 +135,29 @@ class SpriteSheet:
             imageList.append(image)
 
         return imageList
+
+
+class Room:
+
+    def __init__(self, coords, size):
+        self.x1, self.y1 = coords
+        self.w, self.h = size
+        self.x2 = self.x1 + self.w
+        self.y2 = self.y1 + self.h
+
+    @property
+    def center(self):
+        center_x = (self.x1 + self.x2) // 2
+        center_y = (self.y1 + self.y2) // 2
+
+        return (center_x, center_y)
+
+    def intersect(self, other):
+
+        objects_intersect = (self.x1 <= other.x2 and self.x2 >= other.x1 and
+                             self.y1 <= other.y2 and self.y2 >= other.y1)
+
+        return objects_intersect
 
 
 class Creature:
@@ -236,22 +260,68 @@ def deathMonster(monster):
 
 
 def createMap():
-    map = [[Tile(False) for y in range(0, constant.mapHeight)] for x in range(0, constant.mapWidth)]
+    new_map = [[Tile(True) for y in range(0, constant.mapHeight)] for x in range(0, constant.mapWidth)]
 
-    map[10][10].blockPath = True
-    map[10][15].blockPath = True
+    list_of_rooms = []
 
-    for x in range(constant.mapWidth):
-        map[x][0].blockPath = True
-        map[x][constant.mapHeight - 1].blockPath = True
+    for i in range(constant.mapMaxNumRooms):
 
-    for y in range(constant.mapHeight):
-        map[0][y].blockPath = True
-        map[constant.mapWidth - 1][y].blockPath = True
+        w = tcod.random_get_int(0, constant.roomMinWidth, constant.roomMaxWidth)
+        h = tcod.random_get_int(0, constant.roomMinHeight, constant.roomMaxHeight)
+        x = tcod.random_get_int(0, 2, constant.mapWidth - w - 2)
+        y = tcod.random_get_int(0, 2, constant.mapHeight - h - 2)
 
-    makeMapFov(map)
+        new_room = Room((x, y), (w, h))
 
-    return map
+        failed = False
+
+        for other_room in list_of_rooms:
+            if new_room.intersect(other_room):
+                failed = True
+                break
+
+        if not failed:
+            map_create_room(new_map, new_room)
+            current_center = new_room.center
+
+            if len(list_of_rooms) == 0:
+                gen_player(current_center)
+
+            else:
+                previous_center = list_of_rooms[-1].center
+
+                map_create_tunnels(current_center, previous_center, new_map)
+
+            list_of_rooms.append(new_room)
+
+    makeMapFov(new_map)
+
+    return new_map
+
+
+def map_create_room(new_map, new_room):
+    for x in range(new_room.x1, new_room.x2):
+        for y in range(new_room.y1, new_room.y2):
+            new_map[x][y].blockPath = False
+
+
+def map_create_tunnels(coords1, coords2, new_map):
+
+    coin_flip = (tcod.random_get_int(0, 0, 1) == 1)
+
+    x1, y1 = coords1
+    x2, y2 = coords2
+
+    if coin_flip:
+        for x in range(min(x1, x2), max(x1, x2) + 1):
+            new_map[x][y1].blockPath = False
+        for y in range(min(y1, y2), max(y1, y2) + 1):
+            new_map[x2][y].blockPath = False
+    else:
+        for y in range(min(y1, y2), max(y1, y2) + 1):
+            new_map[x1][y].blockPath = False
+        for x in range(min(x1, x2), max(x1, x2) + 1):
+            new_map[x][y2].blockPath = False
 
 
 def checkMapForCreatures(x, y, excludeObj = None):
@@ -319,8 +389,6 @@ def findLine(coords1, coords2):
         calcX, calcY = tcod.line_step()
 
     return coordList
-
-
 
 
 def drawMap(toDraw):
@@ -468,6 +536,7 @@ def castLightning(damage):
             if target:
                 target.creature.takeDamage(damage)
 
+
 def menuPause():
     isClosed = False
 
@@ -605,6 +674,20 @@ def menuSelectTarget(origin=None, range=None, penWall= True):
         clock.tick(constant.gameFPS)
 
 
+def gen_player(coords):
+
+    global player
+
+    x, y = coords
+
+    container = Container()
+    creature = Creature("Greg")
+    player = Actor(x, y, "python", asset.player, animateSpeed=1, creature=creature,
+                   container=container)
+
+    game.currentObjects.append(player)
+
+
 def gameLoop():
     quit = False
     playerAct = "no-action"
@@ -635,7 +718,7 @@ def gameLoop():
 
 
 def gameInt():
-    global mainSurface, game, clock, calcFov, player, enemy, asset
+    global mainSurface, game, clock, calcFov, enemy, asset
 
     pygame.init()
     pygame.key.set_repeat(200, 70)
@@ -643,32 +726,29 @@ def gameInt():
     mainSurface = pygame.display.set_mode((constant.mapWidth * constant.cellWidth,
                                            constant.mapHeight * constant.cellHeight))
 
+    asset = Assets()
+
     game = GameObject()
+    game.currentMap = createMap()
 
     clock = pygame.time.Clock()
 
     calcFov = True
 
-    asset = Assets()
 
-    container1 = Container()
-    creature1 = Creature("Greg")
-    player = Actor(1, 1, "python", asset.player, animateSpeed=1, creature=creature1,
-                   container=container1)
+    #item1 = Item(value = 5, use_function=castHeal)
+    #creature2 = Creature("Jackie", deathFunction=deathMonster)
+    #ai1 = AITest()
+    #enemy = Actor(15, 15, "smart crab", asset.enemy, animateSpeed=1, creature=creature2, ai=ai1,
+    #              item=item1)
 
-    item1 = Item(value = 5, use_function=castHeal)
-    creature2 = Creature("Jackie", deathFunction=deathMonster)
-    ai1 = AITest()
-    enemy = Actor(15, 15, "smart crab", asset.enemy, animateSpeed=1, creature=creature2, ai=ai1,
-                  item=item1)
+    #item2 = Item(value = 4, use_function=castHeal)
+    #creature3 = Creature("Bob", deathFunction=deathMonster)
+    #ai2 = AITest()
+    #enemy2 = Actor(15, 15, "dumb crab", asset.enemy, animateSpeed=1, creature=creature3, ai=ai2,
+    #              item=item2)
 
-    item2 = Item(value = 4, use_function=castHeal)
-    creature3 = Creature("Bob", deathFunction=deathMonster)
-    ai2 = AITest()
-    enemy2 = Actor(15, 15, "dumb crab", asset.enemy, animateSpeed=1, creature=creature3, ai=ai2,
-                  item=item2)
-
-    game.currentObjects = [player, enemy, enemy2]
+    #game.currentObjects = [""", enemy, enemy2"""]
 
 
 def handleKeys():

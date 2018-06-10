@@ -12,8 +12,15 @@ cellHeight = 32
 gameFPS = 60
 
 #Map
-mapWidth = 20
-mapHeight = 20
+mapWidth = 45
+mapHeight = 25
+mapMaxNumRooms = 10
+
+#Room
+roomMaxHeight = 7
+roomMinHeight = 3
+roomMaxWidth = 5
+roomMinWidth = 3
 
 #Colors
 colorBlack = (0, 0, 0)
