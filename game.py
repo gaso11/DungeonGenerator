@@ -1187,15 +1187,6 @@ def handleKeys():
             if event.key == pygame.K_TAB:
                 menuInventory()
 
-            if event.key == pygame.K_LSHIFT:
-                castLightning(10)
-
-            if event.key == pygame.K_f:
-                castFire()
-
-            if event.key == pygame.K_c:
-                castConfusion()
-
     return "no-action"
 
 
