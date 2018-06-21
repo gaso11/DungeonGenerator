@@ -19,7 +19,7 @@ mapMaxNumRooms = 10
 #Room
 roomMaxHeight = 7
 roomMinHeight = 3
-roomMaxWidth = 5
+roomMaxWidth = 7
 roomMinWidth = 3
 
 #Colors
@@ -27,6 +27,8 @@ colorBlack = (0, 0, 0)
 colorWhite = (255, 255, 255)
 colorGrey = (100, 100, 100)
 colorRed = (255, 0, 0)
+colorGreen = (0, 255, 0)
+colorBlue = (0, 0, 255)
 
 #Game Colors
 colorDefaultBG = colorGrey
@@ -42,3 +44,4 @@ numMessages = 4
 # Fonts
 debugFont = pygame.font.Font("data/joystix.ttf", 20)
 messageTextFont = pygame.font.Font("data/joystix.ttf", 12)
+cursorFont = pygame.font.Font("data/joystix.ttf", cellHeight)

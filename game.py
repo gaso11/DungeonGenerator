@@ -10,6 +10,7 @@ Press SPACE to drop last grabbed item
 import pygame
 import tcod
 import constant
+import math
 
 
 class Tile:
@@ -25,21 +26,34 @@ class Assets:
         self.enemies = SpriteSheet("data/graphics/characters/reptile.png")
         self.walls = SpriteSheet("data/graphics/objects/wall.png")
         self.floors = SpriteSheet("data/graphics/objects/floor.png")
+        self.shortWeps = SpriteSheet("data/graphics/items/ShortWep.png")
+        self.shields = SpriteSheet("data/graphics/items/Shield.png")
+        self.scrolls = SpriteSheet("data/graphics/items/Scroll.png")
+        self.flesh = SpriteSheet("data/graphics/items/Flesh.png")
 
         # Animations
         self.player = self.players.getAnimation('m', 4, 16, 16, 2, (32, 32))
-        self.enemy = self.enemies.getAnimation('e', 5, 16, 16, 2, (32, 32))
+        self.snake1 = self.enemies.getAnimation('a', 5, 16, 16, 4, (32, 32))
+        self.snake2 = self.enemies.getAnimation('k', 5, 16, 16, 2, (32, 32))
 
         # Sprites
         self.wall = self.walls.getImage('d', 4, 16, 16, (32, 32))[0]
         self.wallSeen = self.walls.getImage('d', 13, 16, 16, (32, 32))[0]
         self.floor = self.floors.getImage('b', 5, 16, 16, (32, 32))[0]
         self.floorSeen = self.floors.getImage('b', 14, 16, 16, (32, 32))[0]
+        self.sword = self.shortWeps.getImage('a', 2, 16, 16, (32, 32))
+        self.shield = self.shields.getImage('a', 1, 16, 16, (32, 32))
+        self.lightScroll = self.scrolls.getImage('e', 1, 16, 16, (32, 32))
+        self.fireScroll = self.scrolls.getImage('c', 2, 16, 16, (32, 32))
+        self.confuseScroll = self.scrolls.getImage('d', 6, 16, 16, (32, 32))
+        self.deadSnake = self.flesh.getImage('b', 4, 16, 16, (32, 32))
+
+        tcod.namegen_parse("data/namegen/jice_celtic.cfg")
 
 
 class Actor:
     def __init__(self, x, y, name, animation, animateSpeed=.5,
-                 creature=None, ai=None, container=None, item=None):
+                 creature=None, ai=None, container=None, item=None, equipment=None):
         self.x = x
         self.y = y
         self.name = name
@@ -66,6 +80,24 @@ class Actor:
         if self.item:
             self.item.owner = self
 
+        self.equipment = equipment
+        if self.equipment:
+            self.equipment.owner = self
+
+            self.item = Item()
+            self.item.owner = self
+
+    @property
+    def displayName(self):
+        if self.creature:
+            return self.creature.name + "the" + self.name
+
+        if self.item:
+            if self.equipment and self.equipment.equipped:
+                return self.name + " (E)"
+            else:
+                return self.name
+
     def draw(self):
         isVisible = tcod.map_is_in_fov(mapFov, self.x, self.y)
 
@@ -85,6 +117,25 @@ class Actor:
                         self.spriteImage += 1
                 mainSurface.blit(self.animation[self.spriteImage],
                                  (self.x * constant.cellWidth, self.y * constant.cellHeight))
+
+    def distanceTo(self, other):
+
+        dx = other.x - self.x
+        dy = other.y - self.y
+
+        return math.sqrt(dx ** 2 + dy ** 2)
+
+    def moveTo(self, other):
+
+        dx = other.x - self.x
+        dy = other.y - self.y
+
+        distance = math.sqrt(dx ** 2 + dy ** 2)
+
+        dx = int(round(dx / distance))
+        dy = int(round(dy / distance))
+
+        self.creature.move(dx, dy)
 
 
 class GameObject:
@@ -161,8 +212,10 @@ class Room:
 
 
 class Creature:
-    def __init__(self, name, hp=10, deathFunction = None):
+    def __init__(self, name, baseAttack=2, baseDefense=0, hp=10, deathFunction = None):
         self.name = name
+        self.baseAttack = baseAttack
+        self.baseDefense = baseDefense
         self.maxHp = hp
         self.hp = hp
         self.deathFunction = deathFunction
@@ -174,16 +227,18 @@ class Creature:
         target = checkMapForCreatures(self.owner.x + dx, self.owner.y + dy, self.owner)
 
         if target:
-            self.attack(target, 5)
+            self.attack(target)
 
         if not tileIsWall and target is None:
             self.owner.x += dx
             self.owner.y += dy
 
-    def attack(self, target, damage):
+    def attack(self, target):
+
+        damage = self.power - target.creature.defense
         gameMessage(self.name + " attacks " + target.creature.name + " for " + str(damage) + " damage!", constant.colorWhite)
 
-        target.creature.takeDamage(5)
+        target.creature.takeDamage(damage)
 
     def takeDamage(self, damage):
         self.hp -= damage
@@ -198,6 +253,35 @@ class Creature:
 
         if self.hp > self.maxHp:
             self.hp = self.maxHp
+
+    @property
+    def power(self):
+
+        totalPower = self.baseAttack
+
+        if self.owner.container:
+            bonuses = [obj.equipment.attackBonus
+                       for obj in self.owner.container.equippedItems]
+
+            for bonus in bonuses:
+                if bonus:
+                    totalPower += bonus
+
+        return totalPower
+
+    @property
+    def defense(self):
+        totalDefense = self.baseDefense
+
+        if self.owner.container:
+            bonuses = [obj.equipment.defenseBonus
+                       for obj in self.owner.container.equippedItems]
+
+            for bonus in bonuses:
+                if bonus:
+                    totalDefense += bonus
+
+        return totalDefense
 
 
 class Item:
@@ -225,14 +309,52 @@ class Item:
         gameMessage("Item Dropped!", constant.colorRed)
 
     def use(self):
+
+        if self.owner.equipment:
+            self.owner.equipment.toggleEquip()
+            return
+
         if self.use_function:
             result = self.use_function(self.container.owner, self.value)
 
             if result is not None:
-                pass
+                print("Use function failed")
 
             else:
                 self.container.inventory.remove(self.owner)
+
+
+class Equipment:
+
+    def __init__(self, attackBonus=None, defenseBonus=None, slot=None):
+        self.attackBonus = attackBonus
+        self.defenseBonus = defenseBonus
+        self.slot = slot
+
+        self.equipped = False
+
+    def toggleEquip(self):
+
+        if self.equipped:
+            self.unequip()
+        else:
+            self.equip()
+
+    def equip(self):
+
+        equippedItems = self.owner.item.container.equippedItems
+
+        for item in equippedItems:
+            if item.equipment.slot and item.equipment.slot == self.slot:
+                gameMessage("Equipment slot is occupied", constant.colorRed)
+                return
+
+        self.equipped = True
+        gameMessage("Item equipped!")
+
+    def unequip(self):
+        self.equipped = False
+        gameMessage("Item unequipped!")
 
 
 class Container:
@@ -244,17 +366,51 @@ class Container:
     def volume(self):
         return 0.0
 
+    @property
+    def equippedItems(self):
 
-class AITest:
-    # Pretty dumb AI
+        equippedList = [obj for obj in self.inventory
+                        if obj.equipment and obj.equipment.equipped]
+
+        return equippedList
+
+
+class AIConfuse:
+
+    def __init__(self, oldAI, turns):
+
+        self.oldAI = oldAI
+        self.turns = turns
 
     def takeTurn(self):
-        self.owner.creature.move(tcod.random_get_int(None, -1, 1), tcod.random_get_int(None, -1, 1))
+
+        if self.turns > 0:
+            self.owner.creature.move(tcod.random_get_int(None, -1, 1),
+                                    tcod.random_get_int(None, -1, 1))
+
+            self.turns -= 1
+        else:
+            self.owner.ai = self.oldAI
+            gameMessage(self.owner.displayName + " is no longer confused", constant.colorRed)
 
 
-def deathMonster(monster):
+class AIChase:
+
+    def takeTurn(self):
+        monster = self.owner
+
+        if tcod.map_is_in_fov(mapFov, monster.x, monster.y):
+            if monster.distanceTo(player) >= 2:
+                self.owner.moveTo(player)
+
+            elif player.creature.hp > 0:
+                monster.creature.attack(player)
+
+
+def deathSnake(monster):
     gameMessage(monster.creature.name + " is dead!", constant.colorGrey)
 
+    monster.animation = asset.deadSnake
     monster.creature = None
     monster.ai = None
 
@@ -296,7 +452,23 @@ def createMap():
 
     makeMapFov(new_map)
 
-    return new_map
+    return new_map, list_of_rooms
+
+
+def placeObjects(roomList):
+
+    for room in roomList:
+        # Get random coords inside the room
+        x = tcod.random_get_int(0, room.x1 + 1, room.x2 - 1)
+        y = tcod.random_get_int(0, room.y1 + 1, room.y2 - 1)
+
+        # Place enemies and Items
+        genEnemy((x, y))
+
+        x = tcod.random_get_int(0, room.x1 + 1, room.x2 - 1)
+        y = tcod.random_get_int(0, room.y1 + 1, room.y2 - 1)
+
+        genItem((x, y))
 
 
 def map_create_room(new_map, new_room):
@@ -391,6 +563,18 @@ def findLine(coords1, coords2):
     return coordList
 
 
+def findRadius(coords, radius):
+
+    centerX, centerY = coords
+    list = []
+
+    for x in range((centerX - radius), centerX + radius + 1):
+        for y in range((centerY - radius), centerY + radius + 1):
+            list.append((x, y))
+
+    return list
+
+
 def drawMap(toDraw):
     for x in range(0, constant.mapWidth):
         for y in range(0, constant.mapHeight):
@@ -461,23 +645,42 @@ def drawMessages():
         i += 1
 
 
-def drawTileRect(coords):
+def drawTileRect(coords, tileColor=None, tileAlpha=None, mark=None):
 
     x, y = coords
+
+    if tileColor:
+        color = tileColor
+    else:
+        color = constant.colorWhite
+
+    if tileAlpha:
+        alpha = tileAlpha
+    else:
+        alpha = 150
 
     x = x * constant.cellWidth
     y = y * constant.cellHeight
 
     selSurface = pygame.Surface((constant.cellWidth, constant.cellHeight))
-    selSurface.fill(constant.colorWhite)
-    selSurface.set_alpha(150)
+    selSurface.fill(color)
+    selSurface.set_alpha(alpha)
+
+    # Does not display mark correctly
+    if mark:
+        drawText(selSurface, mark, font=constant.cursorFont,
+                 coord=(constant.cellWidth/2, constant.cellHeight/2),
+                 color=constant.colorBlack, center=True)
     mainSurface.blit(selSurface, (x, y))
 
 
-def drawText(surface, text, font, coord, color, background = None):
+def drawText(surface, text, font, coord, color, background = None, center=False):
     textSurf, textRect = helperTextObj(text, font, color, background)
 
-    textRect.topleft = coord
+    if not center:
+        textRect.topleft = coord
+    else:
+        textRect.center = coord
 
     surface.blit(textSurf, textRect)
 
@@ -524,8 +727,11 @@ def castHeal(target, value):
     return None
 
 
-def castLightning(damage):
-    point = menuSelectTarget(origin=(player.x, player.y), range=5, penWall=False)
+def castLightning(caster, values):
+
+    damage, mrange = values
+
+    point = menuSelectTarget(origin=(caster.x, caster.y), range=mrange, penWall=False)
 
     if point:
         tileList = findLine((player.x, player.y), point)
@@ -535,6 +741,48 @@ def castLightning(damage):
 
             if target:
                 target.creature.takeDamage(damage)
+
+
+def castFire(caster, values):
+
+    damage, radius, mrange = values
+
+    point = menuSelectTarget(origin=(caster.x, caster.y), range=mrange,
+                             penWall=False, penCreat=True, radius=radius)
+
+    if point:
+        damageTiles = findRadius(point, radius)
+
+        hit = False
+
+        for (x, y) in damageTiles:
+            target = checkMapForCreatures(x, y)
+
+            if target:
+                target.creature.takeDamage(damage)
+
+                if target is not player:
+                    hit = True
+
+        if hit:
+            gameMessage("Fireball used on monster!", constant.colorRed)
+
+
+def castConfusion(caster, turns):
+
+    point = menuSelectTarget()
+
+    if point:
+        x, y = point
+        target = checkMapForCreatures(x, y)
+
+        if target:
+            oldAI = target.ai
+
+            target.ai = AIConfuse(oldAI=oldAI, turns=turns)
+            target.ai.owner = target
+
+            gameMessage("The creatures are confused!", constant.colorGreen)
 
 
 def menuPause():
@@ -584,7 +832,7 @@ def menuInventory():
 
         invSurface.fill(constant.colorBlack)
 
-        printList = [obj.name for obj in player.container.inventory]
+        printList = [obj.displayName for obj in player.container.inventory]
 
         eventsList = pygame.event.get()
         mouseX, mouseY = pygame.mouse.get_pos()
@@ -614,12 +862,13 @@ def menuInventory():
                         player.container.inventory[mouseSelect].item.drop(player.x, player.y)
 
 
-
         for line, (name) in enumerate(printList):
             if line == mouseSelect and mouseInWindow:
                 drawText(invSurface, name, menuFont, (0, 0 + (line * menuTextHeight)), color, constant.colorGrey)
             else:
                 drawText(invSurface, name, menuFont, (0, 0 + (line * menuTextHeight)), color)
+
+        draw()
 
         mainSurface.blit(invSurface, (menuX, menuY))
 
@@ -628,7 +877,8 @@ def menuInventory():
         pygame.display.update()
 
 
-def menuSelectTarget(origin=None, range=None, penWall= True):
+def menuSelectTarget(origin=None, range=None, penWall= True,
+                     penCreat = True, radius=None):
     isClosed = False
 
     while not isClosed:
@@ -652,6 +902,9 @@ def menuSelectTarget(origin=None, range=None, penWall= True):
 
                 if not penWall and game.currentMap[x][y].blockPath:
                     break
+
+                if not penCreat and checkMapForCreatures(x, y):
+                    break
         else:
             validTiles = [(mapX, mapY)]
 
@@ -667,7 +920,16 @@ def menuSelectTarget(origin=None, range=None, penWall= True):
         draw()
 
         for (tileX, tileY) in validTiles:
-            drawTileRect((tileX, tileY))
+            if (tileX, tileY) == validTiles[-1]:
+                drawTileRect(coords=(tileX, tileY), mark='X')
+            else:
+                drawTileRect(coords=(tileX, tileY))
+
+        if radius:
+            area = findRadius(validTiles[-1], radius)
+
+            for (tileX, tileY) in area:
+                drawTileRect(coords=(tileX, tileY), tileColor=constant.colorRed)
 
         pygame.display.flip()
 
@@ -681,11 +943,142 @@ def gen_player(coords):
     x, y = coords
 
     container = Container()
-    creature = Creature("Greg")
+    creature = Creature("Greg", baseAttack=4)
     player = Actor(x, y, "python", asset.player, animateSpeed=1, creature=creature,
                    container=container)
 
     game.currentObjects.append(player)
+
+
+def genItem(coords):
+
+    rand = tcod.random_get_int(0, 1, 5)
+
+    if rand == 1:
+        item = genLightningScroll(coords)
+    elif rand == 2:
+        item = genFireballScroll(coords)
+    elif rand == 3:
+        item = genConfusionScroll(coords)
+    elif rand == 4:
+        item = genSword(coords)
+    elif rand == 5:
+        item = genShield(coords)
+    else:
+        print("Item creation failed")
+        return
+
+    game.currentObjects.append(item)
+
+
+def genSword(coords):
+
+    x, y = coords
+
+    bonus = tcod.random_get_int(0, 1, 2)
+
+    equipment = Equipment(attackBonus=bonus, slot="rightHand")
+
+    returnItem = Actor(x, y, "Sword", asset.sword, equipment=equipment)
+
+    return returnItem
+
+
+def genShield(coords):
+    x, y = coords
+
+    bonus = tcod.random_get_int(0, 1, 2)
+
+    equipment = Equipment(defenseBonus=bonus, slot="leftHand")
+
+    returnItem = Actor(x, y, "Shield", asset.shield, equipment=equipment)
+
+    return returnItem
+
+
+def genEnemy(coords):
+    rand = tcod.random_get_int(0, 1, 100)
+
+    if rand > 15:
+        newEnemy = genSnakeBasic(coords)
+    elif rand < 15:
+        newEnemy = genSnakeHard(coords)
+    else:
+        print("Item creation failed")
+        return
+
+    game.currentObjects.append(newEnemy)
+
+
+def genSnakeBasic(coords):
+    x, y = coords
+
+    health = tcod.random_get_int(0, 5, 10)
+    attack = tcod.random_get_int(0, 1, 2)
+    name = tcod.namegen_generate("Celtic female")
+
+    creature = Creature(name, deathFunction=deathSnake, hp=health, baseAttack=attack)
+    ai1 = AIChase()
+    snake = Actor(x, y, "Basic Snake", asset.snake1,
+                  animateSpeed=1, creature=creature, ai=ai1)
+
+    # game.currentObjects.append(basicSnake)
+    return snake
+
+
+def genSnakeHard(coords):
+    x, y = coords
+
+    health = tcod.random_get_int(0, 15, 20)
+    attack = tcod.random_get_int(0, 3, 6)
+    name = tcod.namegen_generate("Celtic male")
+
+    creature = Creature(name, deathFunction=deathSnake, hp=health, baseAttack=attack)
+    ai1 = AIChase()
+    snake = Actor(x, y, "Hard Snake", asset.snake2,
+                  animateSpeed=1, creature=creature, ai=ai1)
+
+    # game.currentObjects.append(basicSnake)
+    return snake
+
+
+def genLightningScroll(coords):
+    x, y = coords
+
+    damage = tcod.random_get_int(0, 5, 7)
+    mrange = tcod.random_get_int(0, 7, 8)
+
+    item = Item(use_function=castLightning, value=(damage, mrange))
+
+    returnItem = Actor(x, y, "Lightning Scroll", asset.lightScroll, item=item)
+
+    return returnItem
+
+
+def genFireballScroll(coords):
+    x, y = coords
+
+    damage = tcod.random_get_int(0, 2, 4)
+    radius = 1
+    mrange = tcod.random_get_int(0, 9, 12)
+
+    item = Item(use_function=castFire, value=(damage, radius, mrange))
+
+    returnItem = Actor(x, y, "Fireball Scroll", asset.fireScroll, item=item)
+
+    return returnItem
+
+
+def genConfusionScroll(coords):
+    x, y = coords
+
+    turns = tcod.random_get_int(0, 5, 10)
+
+    item = Item(use_function=castConfusion, value=turns)
+
+    returnItem = Actor(x, y, "Confusion Scroll", asset.confuseScroll, item=item)
+
+    return returnItem
 
 
 def gameLoop():
@@ -729,26 +1122,21 @@ def gameInt():
     asset = Assets()
 
     game = GameObject()
-    game.currentMap = createMap()
+    game.currentMap, game.currentRooms = createMap()
+    placeObjects(game.currentRooms)
 
     clock = pygame.time.Clock()
 
     calcFov = True
 
+    #genItem((player.x + 1, player.y))
+    #genItem((player.x + 1, player.y))
+    #genItem((player.x + 1, player.y))
 
-    #item1 = Item(value = 5, use_function=castHeal)
-    #creature2 = Creature("Jackie", deathFunction=deathMonster)
-    #ai1 = AITest()
-    #enemy = Actor(15, 15, "smart crab", asset.enemy, animateSpeed=1, creature=creature2, ai=ai1,
-    #              item=item1)
+    #genEnemy((player.x - 1, player.y))
+    #genEnemy((player.x - 1, player.y - 1))
 
-    #item2 = Item(value = 4, use_function=castHeal)
-    #creature3 = Creature("Bob", deathFunction=deathMonster)
-    #ai2 = AITest()
-    #enemy2 = Actor(15, 15, "dumb crab", asset.enemy, animateSpeed=1, creature=creature3, ai=ai2,
-    #              item=item2)
 
-    #game.currentObjects = [""", enemy, enemy2"""]
 
 
 def handleKeys():
@@ -801,6 +1189,12 @@ def handleKeys():
 
             if event.key == pygame.K_LSHIFT:
                 castLightning(10)
+
+            if event.key == pygame.K_f:
+                castFire()
+
+            if event.key == pygame.K_c:
+                castConfusion()
 
     return "no-action"
 
