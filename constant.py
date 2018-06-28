@@ -10,6 +10,7 @@ cellHeight = 32
 
 #FPS
 gameFPS = 60
+cameraSpeed = .10
 
 #Map
 mapWidth = 100

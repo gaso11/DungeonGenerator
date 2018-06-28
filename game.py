@@ -233,8 +233,8 @@ class Camera:
         targetY = player.y * constant.cellHeight + (constant.cellHeight // 2)
         distX, distY = self.mapDist((targetX, targetY))
 
-        self.x += int(distX * .10)
-        self.y += int(distY * .10)
+        self.x += int(distX * constant.cameraSpeed)
+        self.y += int(distY * constant.cameraSpeed)
 
     def winMap(self, coords):
 
