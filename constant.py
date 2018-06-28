@@ -3,8 +3,8 @@ import pygame
 pygame.init()
 
 #Game Size
-gameWidth = 800
-gameHeight = 600
+cameraWidth = 800
+cameraHeight = 600
 cellWidth = 32  # tiles are all 32pixels
 cellHeight = 32
 
@@ -12,9 +12,9 @@ cellHeight = 32
 gameFPS = 60
 
 #Map
-mapWidth = 45
-mapHeight = 25
-mapMaxNumRooms = 10
+mapWidth = 100
+mapHeight = 100
+mapMaxNumRooms = 50
 
 #Room
 roomMaxHeight = 7

@@ -1,12 +1,3 @@
-"""
-Sorry I suck at commenting
-Press ESC to pause (which isn't useful right now
-Press TAB to open inventory
-Press Shift to open Tile Select
-Press SPACE to drop last grabbed item
-"""
-
-
 import pygame
 import tcod
 import constant
@@ -103,7 +94,7 @@ class Actor:
 
         if isVisible:
             if len(self.animation) == 1:
-                mainSurface.blit(self.animation[0], (self.x * constant.cellWidth, self.y * constant.cellHeight))
+                mapSurface.blit(self.animation[0], (self.x * constant.cellWidth, self.y * constant.cellHeight))
             elif len(self.animation) > 1:
                 if clock.get_fps() > 0.0:
                     self.flickerTimer += 1 / clock.get_fps()
@@ -115,7 +106,7 @@ class Actor:
                         self.spriteImage = 0
                     else:
                         self.spriteImage += 1
-                mainSurface.blit(self.animation[self.spriteImage],
+                mapSurface.blit(self.animation[self.spriteImage],
                                  (self.x * constant.cellWidth, self.y * constant.cellHeight))
 
     def distanceTo(self, other):
@@ -209,6 +200,69 @@ class Room:
                              self.y1 <= other.y2 and self.y2 >= other.y1)
 
         return objects_intersect
+
+
+class Camera:
+
+    def __init__(self):
+
+        self.width = constant.cameraWidth
+        self.height = constant.cameraHeight
+        self.x, self.y = (0, 0)
+
+    @property
+    def rectangle(self):
+
+        pos = pygame.Rect((0, 0), (constant.cameraWidth, constant.cameraHeight))
+
+        pos.center = (self.x, self.y)
+
+        return pos
+
+    @property
+    def mapAddress(self):
+
+        mapX = self.x // constant.cellWidth
+        mapY = self.y // constant.cellHeight
+
+        return mapX, mapY
+
+    def update(self):
+
+        targetX = player.x * constant.cellWidth + (constant.cellWidth // 2)
+        targetY = player.y * constant.cellHeight + (constant.cellHeight // 2)
+        distX, distY = self.mapDist((targetX, targetY))
+
+        self.x += int(distX * .10)
+        self.y += int(distY * .10)
+
+    def winMap(self, coords):
+
+        x, y = coords
+
+        # Convert Window coords to camera coords
+        camX, camY = self.camDist((x, y))
+
+        mapX = self.x + camX
+        mapY = self.y + camY
+
+        return mapX, mapY
+
+    def mapDist(self, coords):
+
+        x, y = coords
+        distX = x - self.x
+        distY = y - self.y
+
+        return distX, distY
+
+    def camDist(self, coords):
+
+        x, y = coords
+        distX = x - (self.width // 2)
+        distY = y - (self.height // 2)
+
+        return distX, distY
 
 
 class Creature:
@@ -576,8 +630,31 @@ def findRadius(coords, radius):
 
 
 def drawMap(toDraw):
-    for x in range(0, constant.mapWidth):
-        for y in range(0, constant.mapHeight):
+
+    # Frames drop after a while because of how much you explore the map, this fixes that
+    camX, camY = camera.mapAddress
+    mapW = constant.cameraWidth // constant.cellWidth
+    mapH = constant.cameraHeight // constant.cellHeight
+
+    renderWMin = camX - (mapW // 2)
+    renderHMin = camY - (mapH // 2)
+    renderWMax = camX + (mapW // 2)
+    renderHMax = camY + (mapH // 2)
+
+    if renderWMin < 0:
+        renderWMin = 0
+
+    if renderHMin < 0:
+        renderHMin = 0
+
+    if renderWMax > constant.mapWidth:
+        renderWMax = constant.mapWidth
+
+    if renderHMax > constant.mapHeight:
+        renderHMax = constant.mapHeight
+
+    for x in range(renderWMin, renderWMax):
+        for y in range(renderHMin, renderHMax):
 
             isVisible = tcod.map_is_in_fov(mapFov, x, y)
 
@@ -587,18 +664,18 @@ def drawMap(toDraw):
 
                 if toDraw[x][y].blockPath == True:
                     # wall
-                    mainSurface.blit(asset.wall, (x * constant.cellWidth, y * constant.cellHeight))
+                    mapSurface.blit(asset.wall, (x * constant.cellWidth, y * constant.cellHeight))
                 else:
                     # floor
-                    mainSurface.blit(asset.floor, (x * constant.cellWidth, y * constant.cellHeight))
+                    mapSurface.blit(asset.floor, (x * constant.cellWidth, y * constant.cellHeight))
 
             elif toDraw[x][y].explored:
                 if toDraw[x][y].blockPath == True:
                     # wall
-                    mainSurface.blit(asset.wallSeen, (x * constant.cellWidth, y * constant.cellHeight))
+                    mapSurface.blit(asset.wallSeen, (x * constant.cellWidth, y * constant.cellHeight))
                 else:
                     # floor
-                     mainSurface.blit(asset.floorSeen, (x * constant.cellWidth, y * constant.cellHeight))
+                     mapSurface.blit(asset.floorSeen, (x * constant.cellWidth, y * constant.cellHeight))
 
 
 def draw():
@@ -606,6 +683,9 @@ def draw():
 
     # clear
     mainSurface.fill(constant.colorDefaultBG)
+    mapSurface.fill(constant.colorDefaultBG)
+
+    camera.update()
 
     # map
     drawMap(game.currentMap)
@@ -614,10 +694,10 @@ def draw():
     for obj in game.currentObjects:
         obj.draw()
 
+    mainSurface.blit(mapSurface, (0, 0), camera.rectangle)
+
     drawDebug()
     drawMessages()
-
-    # update
 
 
 def drawDebug():
@@ -633,7 +713,7 @@ def drawMessages():
 
     textHeight = helperTextHeight(constant.messageTextFont)
 
-    startY = (constant.mapHeight * constant.cellHeight - (constant.numMessages * textHeight)) - 5
+    startY = (constant.cameraHeight - (constant.numMessages * textHeight)) - 5
 
     i = 0
 
@@ -671,7 +751,7 @@ def drawTileRect(coords, tileColor=None, tileAlpha=None, mark=None):
         drawText(selSurface, mark, font=constant.cursorFont,
                  coord=(constant.cellWidth/2, constant.cellHeight/2),
                  color=constant.colorBlack, center=True)
-    mainSurface.blit(selSurface, (x, y))
+    mapSurface.blit(selSurface, (x, y))
 
 
 def drawText(surface, text, font, coord, color, background = None, center=False):
@@ -788,8 +868,8 @@ def castConfusion(caster, turns):
 def menuPause():
     isClosed = False
 
-    windowWidth = constant.mapWidth * constant.cellWidth
-    windowHeight = constant.mapHeight * constant.cellHeight
+    windowWidth = constant.cameraWidth
+    windowHeight = constant.cameraHeight
 
     menuText = "PAUSED"
     menuFont = constant.debugFont
@@ -818,8 +898,8 @@ def menuInventory():
     isClosed = False
     menuWidth = 200
     menuHeight = 200
-    windowWidth = constant.mapWidth * constant.cellWidth
-    windowHeight = constant.mapHeight * constant.cellHeight
+    windowWidth = constant.cameraWidth
+    windowHeight = constant.cameraHeight
     menuX = (windowWidth / 2) - (menuWidth / 2)
     menuY = (windowHeight / 2) - (menuHeight / 2)
     menuFont = constant.messageTextFont
@@ -885,8 +965,10 @@ def menuSelectTarget(origin=None, range=None, penWall= True,
         mouseX, mouseY = pygame.mouse.get_pos()
         eventList = pygame.event.get()
 
-        mapX = int(mouseX / constant.cellWidth)
-        mapY = int(mouseY / constant.cellHeight)
+        mapPX, mapPY = camera.winMap((mouseX, mouseY))
+
+        mapX = int(mapPX / constant.cellWidth)
+        mapY = int(mapPY / constant.cellHeight)
 
         validTiles = []
 
@@ -917,7 +999,17 @@ def menuSelectTarget(origin=None, range=None, penWall= True,
                 if event.button == 1:
                     return (validTiles[-1])
 
-        draw()
+        mainSurface.fill(constant.colorDefaultBG)
+        mapSurface.fill(constant.colorDefaultBG)
+
+        camera.update()
+
+        # map
+        drawMap(game.currentMap)
+
+        # character
+        for obj in game.currentObjects:
+            obj.draw()
 
         for (tileX, tileY) in validTiles:
             if (tileX, tileY) == validTiles[-1]:
@@ -931,6 +1023,10 @@ def menuSelectTarget(origin=None, range=None, penWall= True,
             for (tileX, tileY) in area:
                 drawTileRect(coords=(tileX, tileY), tileColor=constant.colorRed)
 
+        mainSurface.blit(mapSurface, (0, 0), camera.rectangle)
+        drawDebug()
+        drawMessages()
+
         pygame.display.flip()
 
         clock.tick(constant.gameFPS)
@@ -943,7 +1039,7 @@ def gen_player(coords):
     x, y = coords
 
     container = Container()
-    creature = Creature("Greg", baseAttack=4)
+    creature = Creature("Evan", baseAttack=4)
     player = Actor(x, y, "python", asset.player, animateSpeed=1, creature=creature,
                    container=container)
 
@@ -1111,13 +1207,17 @@ def gameLoop():
 
 
 def gameInt():
-    global mainSurface, game, clock, calcFov, enemy, asset
+    global mainSurface, mapSurface, game, clock, calcFov, enemy, asset, camera
 
     pygame.init()
     pygame.key.set_repeat(200, 70)
 
-    mainSurface = pygame.display.set_mode((constant.mapWidth * constant.cellWidth,
-                                           constant.mapHeight * constant.cellHeight))
+    mainSurface = pygame.display.set_mode((constant.cameraWidth, constant.cameraHeight))
+
+    mapSurface = pygame.Surface((constant.mapWidth * constant.cellWidth,
+                                 constant.mapHeight * constant.cellHeight))
+
+    camera = Camera()
 
     asset = Assets()
 
@@ -1128,15 +1228,6 @@ def gameInt():
     clock = pygame.time.Clock()
 
     calcFov = True
-
-    #genItem((player.x + 1, player.y))
-    #genItem((player.x + 1, player.y))
-    #genItem((player.x + 1, player.y))
-
-    #genEnemy((player.x - 1, player.y))
-    #genEnemy((player.x - 1, player.y - 1))
-
-
 
 
 def handleKeys():
