@@ -16,6 +16,7 @@ class Assets:
     def __init__(self):
         # Sheets
         self.players = SpriteSheet("data/graphics/characters/player.png")
+        self.undead = SpriteSheet("data/graphics/characters/undead.png")
         self.enemies = SpriteSheet("data/graphics/characters/reptile.png")
         self.walls = SpriteSheet("data/graphics/objects/wall.png")
         self.floors = SpriteSheet("data/graphics/objects/floor.png")
@@ -30,6 +31,7 @@ class Assets:
         self.player = self.players.getAnimation('m', 4, 16, 16, 2, (32, 32))
         self.snake1 = self.enemies.getAnimation('a', 5, 16, 16, 4, (32, 32))
         self.snake2 = self.enemies.getAnimation('k', 5, 16, 16, 2, (32, 32))
+        self.playerGhost = self.undead.getAnimation('e', 5, 16, 16, 2, (32, 32))
 
         # Sprites
         self.wall = self.walls.getImage('d', 4, 16, 16, (32, 32))[0]
@@ -399,6 +401,8 @@ class Creature:
         gameMessage(self.name + " attacks " + target.creature.name + " for " + str(damage) + " damage!", constant.colorWhite)
 
         target.creature.takeDamage(damage)
+        if target == player and player.creature.hp <= 0:
+            deathPlayer()
 
     def takeDamage(self, damage):
         if damage <= 0:
@@ -553,6 +557,13 @@ class Container:
                         if obj.equipment and obj.equipment.equipped]
 
         return equippedList
+
+def deathPlayer():
+    gameMessage("you have died!", constant.colorGrey)
+
+    player.animation = asset.playerGhost
+#    monster.creature = None
+#    monster.ai = None
 
 
 class AIConfuse:
@@ -843,7 +854,8 @@ def draw():
 
 
 def drawDebug():
-    drawText(mainSurface, "fps: " + str(int(clock.get_fps())), constant.debugFont, (0, 0),
+#    drawText(mainSurface, "fps: "    + str(int(clock.get_fps())),   constant.debugFont, (0, 0),
+     drawText(mainSurface, "health: " + str(int(player.creature.hp)), constant.debugFont, (constant.cameraWidth-180, constant.cameraHeight-30),
              constant.colorWhite, constant.colorBlack)
 
 
