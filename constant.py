@@ -13,9 +13,9 @@ gameFPS = 60
 cameraSpeed = .10
 
 #Map
-mapWidth = 100
-mapHeight = 100
-mapMaxNumRooms = 50
+mapWidth = 20
+mapHeight = 20
+mapMaxNumRooms = 10
 
 #Room
 roomMaxHeight = 7
@@ -46,3 +46,10 @@ numMessages = 4
 debugFont = pygame.font.Font("data/joystix.ttf", 20)
 messageTextFont = pygame.font.Font("data/joystix.ttf", 12)
 cursorFont = pygame.font.Font("data/joystix.ttf", cellHeight)
+
+# Depth
+playerDepth = -100
+creatureDepth = 1
+itemDepth = 2
+corpseDepth = 100
+backgroundDepth = 150

@@ -2,6 +2,8 @@ import pygame
 import tcod
 import constant
 import math
+import pickle
+import gzip
 
 
 class Tile:
@@ -21,6 +23,8 @@ class Assets:
         self.shields = SpriteSheet("data/graphics/items/Shield.png")
         self.scrolls = SpriteSheet("data/graphics/items/Scroll.png")
         self.flesh = SpriteSheet("data/graphics/items/Flesh.png")
+        self.food = SpriteSheet("data/graphics/items/Food.png")
+        self.tile = SpriteSheet("data/graphics/objects/Tile.png")
 
         # Animations
         self.player = self.players.getAnimation('m', 4, 16, 16, 2, (32, 32))
@@ -38,18 +42,39 @@ class Assets:
         self.fireScroll = self.scrolls.getImage('c', 2, 16, 16, (32, 32))
         self.confuseScroll = self.scrolls.getImage('d', 6, 16, 16, (32, 32))
         self.deadSnake = self.flesh.getImage('b', 4, 16, 16, (32, 32))
+        self.carrot = self.food.getImage('a', 4, 16, 16, (32, 32))
+        self.upStairs = self.tile.getImage('e', 2, 16, 16, (32, 32))
+        self.downStairs = self.tile.getImage('f', 2, 16, 16, (32, 32))
+
+        self.aniDict = {
+            "player" : self.player,
+            "snake1" : self.snake1,
+            "snake2" : self.snake2,
+            "sword" : self.sword,
+            "shield" : self.shield,
+            "lightScroll" : self.lightScroll,
+            "fireScroll" : self.fireScroll,
+            "confuseScroll" : self.confuseScroll,
+            "carrot" : self.carrot,
+            "flesh1" : self.deadSnake,
+            "upStairs" : self.upStairs,
+            "downStairs" : self.downStairs
+        }
 
         tcod.namegen_parse("data/namegen/jice_celtic.cfg")
 
 
 class Actor:
-    def __init__(self, x, y, name, animation, animateSpeed=.5,
-                 creature=None, ai=None, container=None, item=None, equipment=None):
+    def __init__(self, x, y, name, animationKey, animateSpeed=.5,
+                 creature=None, ai=None, container=None, item=None, equipment=None,
+                 stairs=None, depth=0):
         self.x = x
         self.y = y
         self.name = name
-        self.animation = animation
+        self.animationKey = animationKey
+        self.animation = asset.aniDict[self.animationKey]
         self.animateSpeed = animateSpeed / 1.0  # It demands a float
+        self.depth = depth
 
         self.flickerSpeed = self.animateSpeed / len(self.animation)
         self.flickerTimer = 0.0
@@ -74,6 +99,13 @@ class Actor:
         self.equipment = equipment
         if self.equipment:
             self.equipment.owner = self
+
+            self.item = Item()
+            self.item.owner = self
+
+        self.stairs = stairs
+        if self.stairs:
+            self.stairs.owner = self
 
             self.item = Item()
             self.item.owner = self
@@ -128,11 +160,85 @@ class Actor:
 
         self.creature.move(dx, dy)
 
+    def destroy(self):
+
+        self.animation = None
+
+    def resurrect(self):
+
+        self.animation = asset.aniDict[self.animationKey]
+
 
 class GameObject:
     def __init__(self):
         self.currentObjects = []
         self.messageHistory = []
+        self.prevMaps = []
+        self.nextMaps = []
+        self.currentMap, self.currentRooms = createMap()
+
+    def nextMap(self):
+        global calcFov
+
+        # Set Fov again
+        calcFov = True
+
+        for obj in self.currentObjects:
+            obj.destroy()
+
+        # Save before leaving
+        self.prevMaps.append((player.x, player.y, self.currentMap,
+                              self.currentRooms, self.currentObjects))
+
+        if len(self.nextMaps) == 0:
+
+            # Remove Objects from previous level
+            self.currentObjects = [player]
+
+            player.resurrect()
+
+            # Re-populate map
+            self.currentMap, self.currentRooms = createMap()
+            placeObjects(self.currentRooms)
+        else:
+            (player.x, player.y, self.currentMap,
+             self.currentRooms, self.currentObjects) = self.nextMaps[-1]
+
+            for obj in self.currentObjects:
+                obj.resurrect()
+
+            makeMapFov(self.currentMap)
+
+            calcFov = True
+
+            # Current map doesn't need to be in the list anymore
+            # unless you like being trapped on one floor
+            del self.nextMaps[-1]
+
+    def prevMap(self):
+        global calcFov
+
+        if len(self.prevMaps) != 0:
+
+            for obj in self.currentObjects:
+                obj.destroy()
+
+            # Save before going back
+            self.nextMaps.append((player.x, player.y, self.currentMap,
+                                  self.currentRooms, self.currentObjects))
+
+            (player.x, player.y, self.currentMap,
+             self.currentRooms, self.currentObjects) = self.prevMaps[-1]
+
+            for obj in self.currentObjects:
+                obj.resurrect()
+
+            makeMapFov(self.currentMap)
+
+            calcFov = True
+
+            # Delete floor while you're here, or you'll be trapped like in nextMap
+            del self.prevMaps[-1]
 
 
 class SpriteSheet:
@@ -295,6 +401,9 @@ class Creature:
         target.creature.takeDamage(damage)
 
     def takeDamage(self, damage):
+        if damage <= 0:
+            damage = 1
+
         self.hp -= damage
         gameMessage(self.name + "'s health is " + str(self.hp) + "/" + str(self.maxHp), constant.colorRed)
 
@@ -352,11 +461,15 @@ class Item:
             else:
                 gameMessage("Picking up!", constant.colorRed)
                 actor.container.inventory.append(self.owner)
+                self.owner.destroy()
                 game.currentObjects.remove(self.owner)
                 self.container = actor.container
 
     def drop(self, x, y):
         game.currentObjects.append(self.owner)
+
+        self.owner.resurrect()
+
         self.container.inventory.remove(self.owner)
         self.owner.x = x
         self.owner.y = y
@@ -409,6 +522,19 @@ class Equipment:
     def unequip(self):
         self.equipped = False
         gameMessage("Item unequipped!")
+
+
+class Stairs:
+
+    def __init__(self, up=True):
+
+        self.up = up
+
+    def use(self):
+        if self.up:
+            game.nextMap()
+        else:
+            game.prevMap()
 
 
 class Container:
@@ -465,6 +591,8 @@ def deathSnake(monster):
     gameMessage(monster.creature.name + " is dead!", constant.colorGrey)
 
     monster.animation = asset.deadSnake
+    monster.depth = constant.corpseDepth
+    monster.animationKey = "flesh1"
     monster.creature = None
     monster.ai = None
 
@@ -494,10 +622,8 @@ def createMap():
             map_create_room(new_map, new_room)
             current_center = new_room.center
 
-            if len(list_of_rooms) == 0:
-                gen_player(current_center)
+            if len(list_of_rooms) != 0:
 
-            else:
                 previous_center = list_of_rooms[-1].center
 
                 map_create_tunnels(current_center, previous_center, new_map)
@@ -511,7 +637,23 @@ def createMap():
 
 def placeObjects(roomList):
 
+    firstLevel = (len(game.prevMaps))
+
     for room in roomList:
+
+        firstRoom = (room == roomList[0])
+        lastRoom = (room == roomList[-1])
+
+        if firstRoom:
+            player.x, player.y = room.center
+
+        if firstRoom and firstLevel:
+            genStairs((player.x, player.y), up=False)
+
+        if lastRoom:
+            genStairs(room.center)
+
+
         # Get random coords inside the room
         x = tcod.random_get_int(0, room.x1 + 1, room.x2 - 1)
         y = tcod.random_get_int(0, room.y1 + 1, room.y2 - 1)
@@ -691,7 +833,7 @@ def draw():
     drawMap(game.currentMap)
 
     # character
-    for obj in game.currentObjects:
+    for obj in sorted(game.currentObjects, key=lambda objs: objs.depth, reverse=True):
         obj.draw()
 
     mainSurface.blit(mapSurface, (0, 0), camera.rectangle)
@@ -801,8 +943,6 @@ def castHeal(target, value):
         gameMessage(target.creature.name + " the " + target.name +
               " healed for " + str(value), constant.colorWhite)
         target.creature.heal(value)
-
-
 
     return None
 
@@ -1040,15 +1180,31 @@ def gen_player(coords):
 
     container = Container()
     creature = Creature("Evan", baseAttack=4)
-    player = Actor(x, y, "python", asset.player, animateSpeed=1, creature=creature,
+    player = Actor(x, y, "python", "player", animateSpeed=1, creature=creature,
                    container=container)
 
     game.currentObjects.append(player)
 
 
+def genStairs(coords, up=True):
+
+    x, y = coords
+
+    if up:
+        stairsC = Stairs()
+        stairs = Actor(x, y, "stairs", "upStairs", stairs=stairsC,
+                       depth=constant.backgroundDepth)
+    else:
+        stairsC = Stairs(up)
+        stairs = Actor(x, y, "stairs", "downStairs", stairs=stairsC,
+                       depth=constant.backgroundDepth)
+
+    game.currentObjects.append(stairs)
+
+
 def genItem(coords):
 
-    rand = tcod.random_get_int(0, 1, 5)
+    rand = tcod.random_get_int(0, 1, 6)
 
     if rand == 1:
         item = genLightningScroll(coords)
@@ -1060,7 +1216,10 @@ def genItem(coords):
         item = genSword(coords)
     elif rand == 5:
         item = genShield(coords)
+    elif rand == 6:
+        item = genHealth(coords)
     else:
+        # This does not affect gameplay, but is here to catch this error
         print("Item creation failed")
         return
 
@@ -1075,7 +1234,8 @@ def genSword(coords):
 
     equipment = Equipment(attackBonus=bonus, slot="rightHand")
 
-    returnItem = Actor(x, y, "Sword", asset.sword, equipment=equipment)
+    returnItem = Actor(x, y, "Sword", "sword", equipment=equipment,
+                       depth=constant.itemDepth)
 
     return returnItem
 
@@ -1087,7 +1247,8 @@ def genShield(coords):
 
     equipment = Equipment(defenseBonus=bonus, slot="leftHand")
 
-    returnItem = Actor(x, y, "Shield", asset.shield, equipment=equipment)
+    returnItem = Actor(x, y, "Shield", "shield", equipment=equipment,
+                       depth=constant.itemDepth)
 
     return returnItem
 
@@ -1115,10 +1276,10 @@ def genSnakeBasic(coords):
 
     creature = Creature(name, deathFunction=deathSnake, hp=health, baseAttack=attack)
     ai1 = AIChase()
-    snake = Actor(x, y, "Basic Snake", asset.snake1,
-                  animateSpeed=1, creature=creature, ai=ai1)
+    snake = Actor(x, y, "Basic Snake", "snake1",
+                  animateSpeed=1, creature=creature, ai=ai1,
+                  depth=constant.creatureDepth)
 
-    # game.currentObjects.append(basicSnake)
     return snake
 
 
@@ -1131,8 +1292,9 @@ def genSnakeHard(coords):
 
     creature = Creature(name, deathFunction=deathSnake, hp=health, baseAttack=attack)
     ai1 = AIChase()
-    snake = Actor(x, y, "Hard Snake", asset.snake2,
-                  animateSpeed=1, creature=creature, ai=ai1)
+    snake = Actor(x, y, "Hard Snake", "snake2",
+                  animateSpeed=1, creature=creature, ai=ai1,
+                  depth=constant.creatureDepth)
 
     # game.currentObjects.append(basicSnake)
     return snake
@@ -1146,7 +1308,8 @@ def genLightningScroll(coords):
 
     item = Item(use_function=castLightning, value=(damage, mrange))
 
-    returnItem = Actor(x, y, "Lightning Scroll", asset.lightScroll, item=item)
+    returnItem = Actor(x, y, "Lightning Scroll", "lightScroll", item=item,
+                       depth=constant.itemDepth)
 
     return returnItem
 
@@ -1160,7 +1323,8 @@ def genFireballScroll(coords):
 
     item = Item(use_function=castFire, value=(damage, radius, mrange))
 
-    returnItem = Actor(x, y, "Fireball Scroll", asset.fireScroll, item=item)
+    returnItem = Actor(x, y, "Fireball Scroll", "fireScroll", item=item,
+                       depth=constant.itemDepth)
 
     return returnItem
 
@@ -1172,12 +1336,27 @@ def genConfusionScroll(coords):
 
     item = Item(use_function=castConfusion, value=turns)
 
-    returnItem = Actor(x, y, "Confusion Scroll", asset.confuseScroll, item=item)
+    returnItem = Actor(x, y, "Confusion Scroll", "confuseScroll", item=item,
+                       depth=constant.itemDepth)
+
+    return returnItem
+
+
+def genHealth(coords):
+    x, y = coords
+
+    health = tcod.random_get_int(0, 3, 7)
+
+    item = Item(use_function=castHeal, value=health)
+
+    returnItem = Actor(x, y, "Carrot", "carrot", item=item,
+                       depth=constant.itemDepth)
 
     return returnItem
 
 
 def gameLoop():
+
     quit = False
     playerAct = "no-action"
 
@@ -1188,7 +1367,7 @@ def gameLoop():
         calculateMapFov()
 
         if playerAct == "QUIT":
-            quit = True
+            quitGame()
 
         elif playerAct != "no-action":
             for obj in game.currentObjects:
@@ -1201,13 +1380,9 @@ def gameLoop():
         pygame.display.flip()
         clock.tick(constant.gameFPS)
 
-    # Loop is done
-    pygame.quit()
-    exit()
-
 
 def gameInt():
-    global mainSurface, mapSurface, game, clock, calcFov, enemy, asset, camera
+    global mainSurface, mapSurface, clock, calcFov, enemy, asset, camera
 
     pygame.init()
     pygame.key.set_repeat(200, 70)
@@ -1221,19 +1396,32 @@ def gameInt():
 
     asset = Assets()
 
-    game = GameObject()
-    game.currentMap, game.currentRooms = createMap()
-    placeObjects(game.currentRooms)
-
     clock = pygame.time.Clock()
 
     calcFov = True
+
+    # Create Game Stuff
+    try:
+        loadGame()
+    except:
+        newGame()
+
+
+def newGame():
+    global game
+
+    game = GameObject()
+    gen_player((0, 0))
+    placeObjects(game.currentRooms)
 
 
 def handleKeys():
     global calcFov
     # Get Input
+    keyList = pygame.key.get_pressed()
     events = pygame.event.get()
+
+    modKey = keyList[pygame.K_LSHIFT] or keyList[pygame.K_RSHIFT]
 
     # process
     for event in events:
@@ -1265,7 +1453,7 @@ def handleKeys():
                 objectsAtPlayer = objectsAtCoords(player.x, player.y)
 
                 for obj in objectsAtPlayer:
-                    if obj.item:
+                    if obj.item and not obj.stairs:
                         obj.item.pickUp(player)
 
             if event.key == pygame.K_SPACE:
@@ -1278,11 +1466,52 @@ def handleKeys():
             if event.key == pygame.K_TAB:
                 menuInventory()
 
+            if event.key == pygame.K_UP:
+                objList = objectsAtCoords(player.x, player.y)
+
+                for obj in objList:
+                    if obj.stairs:
+                        obj.stairs.use()
+
     return "no-action"
 
 
 def gameMessage(msg, color = constant.colorGrey):
     game.messageHistory.append((msg, color))
+
+
+def quitGame():
+
+    saveGame()
+
+    # and quit
+    pygame.quit()
+    exit()
+
+
+def saveGame():
+
+    for obj in game.currentObjects:
+        obj.destroy()
+
+    # Save and encrypt (because we are that concerned with people hacking their save data)
+    # this also compresses files in case you have 100 maps or something
+    with gzip.open('data\savedata', 'wb') as file:
+        pickle.dump([game, player], file)
+
+
+def loadGame():
+    global game, player
+
+    with gzip.open('data\savedata', 'rb') as file:
+        game, player = pickle.load(file)
+
+    for obj in game.currentObjects:
+        obj.resurrect()
+
+    makeMapFov(game.currentMap)
+
+
 
 
 gameInt()
