@@ -41,7 +41,7 @@ class Assets:
         self.scrolls = SpriteSheet("data/graphics/items/Scroll.png")
         self.flesh = SpriteSheet("data/graphics/items/Flesh.png")
         self.food = SpriteSheet("data/graphics/items/Food.png")
-        self.tile = SpriteSheet("data/graphics/objects/Tile.png")
+        self.tile = SpriteSheet("data/graphics/objects/tile.png")
 
         # Animations
         self.player = self.players.getAnimation('m', 4, 16, 16, 2, (32, 32))
@@ -215,7 +215,7 @@ class Actor:
 
         self.animation = asset.aniDict[self.animationKey]
 
-
+dLvl = 1 # which floor you are on
 class GameObject:
     def __init__(self):
         self.currentObjects = []
@@ -226,9 +226,11 @@ class GameObject:
 
     def nextMap(self):
         global calcFov
+        global dLvl
 
         # Set Fov again
         calcFov = True
+        dLvl = dLvl + 1
 
         for obj in self.currentObjects:
             obj.destroy()
@@ -264,6 +266,7 @@ class GameObject:
 
     def prevMap(self):
         global calcFov
+        global dLvl
 
         if len(self.prevMaps) != 0:
 
@@ -283,6 +286,7 @@ class GameObject:
             makeMapFov(self.currentMap)
 
             calcFov = True
+            dLvl = dLvl - 1
 
             # Delete floor while you're here, or you'll be trapped like in nextMap
             del self.prevMaps[-1]
@@ -901,8 +905,15 @@ def draw():
 
 
 def drawDebug():
-#    drawText(mainSurface, "fps: "    + str(int(clock.get_fps())),   constant.debugFont, (0, 0),
-     drawText(mainSurface, "health: " + str(int(player.creature.hp)), constant.debugFont, (constant.cameraWidth-180, constant.cameraHeight-30),
+    global dLvl
+    #    drawText(mainSurface, "fps: "    + str(int(clock.get_fps())),   constant.debugFont, (0, 0),
+    drawText(mainSurface, "health: " + str(int(player.creature.hp)),
+              constant.debugFont,
+              (constant.cameraWidth-180, constant.cameraHeight-60),
+             constant.colorWhite, constant.colorBlack)
+    drawText(mainSurface, "level: " + str(int(dLvl)),
+             constant.debugFont,
+             (constant.cameraWidth-180, constant.cameraHeight-30),
              constant.colorWhite, constant.colorBlack)
 
 
