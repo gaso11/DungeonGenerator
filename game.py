@@ -4,6 +4,7 @@ import constant
 import math
 import pickle
 import gzip
+import random
 
 
 class Tile:
@@ -12,8 +13,23 @@ class Tile:
         self.explored = False
 
 
+class Preferences:
+
+    def __init__(self):
+
+        self.soundVol = .5
+        self.musicVol = .5
+
+
 class Assets:
     def __init__(self):
+
+        self.sndList = []
+
+        self.adjustSound()
+
+        # Load everything!
+
         # Sheets
         self.players = SpriteSheet("data/graphics/characters/player.png")
         self.undead = SpriteSheet("data/graphics/characters/undead.png")
@@ -48,6 +64,11 @@ class Assets:
         self.upStairs = self.tile.getImage('e', 2, 16, 16, (32, 32))
         self.downStairs = self.tile.getImage('f', 2, 16, 16, (32, 32))
 
+        # Backgrounds
+        self.mainMenuBG = pygame.image.load("data/graphics/tower.jpg")
+        # Just in case someone changes the camera size (please don't do that)
+        self.mainMenuBG = pygame.transform.scale(self.mainMenuBG, (constant.cameraWidth, constant.cameraHeight))
+
         self.aniDict = {
             "player" : self.player,
             "snake1" : self.snake1,
@@ -64,6 +85,30 @@ class Assets:
         }
 
         tcod.namegen_parse("data/namegen/jice_celtic.cfg")
+
+        # Audio
+        self.bgMusic = "data/audio/vortex.mp3"
+        self.bgGame = "data/audio/game.mp3"
+        self.hit1 = self.addSound("data/audio/hit1.wav")
+        self.hit2 = self.addSound("data/audio/hit2.wav")
+        self.hit3 = self.addSound("data/audio/hit3.wav")
+        self.hit4 = self.addSound("data/audio/hit4.wav")
+
+        self.hitList = [self.hit1, self.hit2, self.hit3, self.hit4]
+
+    def addSound(self, file):
+
+        sound = pygame.mixer.Sound(file)
+        self.sndList.append(sound)
+
+        return sound
+
+    def adjustSound(self):
+
+        for sound in self.sndList:
+            sound.set_volume(preferences.soundVol)
+
+        pygame.mixer.music.set_volume(preferences.musicVol)
 
 
 class Actor:
@@ -374,7 +419,7 @@ class Camera:
 
 
 class Creature:
-    def __init__(self, name, baseAttack=2, baseDefense=0, hp=10, deathFunction = None):
+    def __init__(self, name, baseAttack=2, baseDefense=0, hp=30, deathFunction = None):
         self.name = name
         self.baseAttack = baseAttack
         self.baseDefense = baseDefense
@@ -403,6 +448,9 @@ class Creature:
         target.creature.takeDamage(damage)
         if target == player and player.creature.hp <= 0:
             deathPlayer()
+
+        if damage > 0 and self.owner is player:
+            pygame.mixer.Sound.play(randomness.choice(asset.hitList))
 
     def takeDamage(self, damage):
         if damage <= 0:
@@ -558,12 +606,11 @@ class Container:
 
         return equippedList
 
+
 def deathPlayer():
     gameMessage("you have died!", constant.colorGrey)
 
     player.animation = asset.playerGhost
-#    monster.creature = None
-#    monster.ai = None
 
 
 class AIConfuse:
@@ -1046,6 +1093,281 @@ def menuPause():
         pygame.display.flip()
 
 
+class Button:
+
+    def __init__(self, surface, text, size, coords,
+                 colorMouseOver=constant.colorRed,
+                 colorDefault=constant.colorGreen,
+                 colorTextMouse=constant.colorGrey,
+                 colorTextDefault=constant.colorGrey):
+
+        self.surface = surface
+        self.text = text
+        self.size = size
+        self.coords = coords
+        self.colorMouse = colorMouseOver
+        self.colorDefault = colorDefault
+        self.colorTextMouse = colorTextMouse
+        self.colorTextDefault = colorTextDefault
+        self.currentColor = colorDefault
+        self.currentTextColor = colorTextDefault
+
+        self.rect = pygame.Rect((0, 0), size)
+        self.rect.center = coords
+
+    def update(self, playerInput):
+
+        mouseClicked = False
+
+        levent, mousePos = playerInput
+        mouseX, mouseY = mousePos
+
+        mouseOver = (mouseX >= self.rect.left and
+                     mouseX <= self.rect.right and
+                     mouseY >= self.rect.top and
+                     mouseY <= self.rect.bottom)
+
+        for event in levent:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    mouseClicked = True
+
+        if mouseOver and mouseClicked:
+            return True
+
+        if mouseOver:
+            self.currentColor = self.colorMouse
+            self.currentTextColor = self.colorTextMouse
+        else:
+            self.currentColor = self.colorDefault
+            self.currentTextColor = self.colorTextDefault
+
+    def draw(self):
+
+        pygame.draw.rect(self.surface, self.currentColor, self.rect)
+        drawText(self.surface, self.text, constant.debugFont,
+                 self.coords, self.currentTextColor,
+                 center=True)
+
+
+class Slider:
+    def __init__(self, surface, size, coords, bgColor, fgColor, value):
+
+        self.surface = surface
+        self.size = size
+        self.coords = coords
+        self.bgColor = bgColor
+        self.fgColor = fgColor
+        self.value = value
+
+        self.bgRect = pygame.Rect((0, 0), size)
+        self.bgRect.center = coords
+
+        self.fgRect = pygame.Rect((0, 0), (self.bgRect.width * self.value, self.bgRect.height))
+        self.fgRect.topleft = self.bgRect.topleft
+
+        self.tab = pygame.Rect((0, 0), (20, self.bgRect.height + 4))
+        self.tab.center = (self.fgRect.right, self.bgRect.centery)
+
+    def update(self, sliderInput):
+
+        mouseDown = pygame.mouse.get_pressed()[0]
+
+        levent, mousePos = sliderInput
+        mouseX, mouseY = mousePos
+
+        mouseOver = (mouseX >= self.bgRect.left and
+                     mouseX <= self.bgRect.right and
+                     mouseY >= self.bgRect.top and
+                     mouseY <= self.bgRect.bottom)
+
+        if mouseDown and mouseOver:
+            self.value = (float(mouseX) - float(self.bgRect.left)) / self.bgRect.width
+
+            self.fgRect.width = self.bgRect.width * self.value
+            self.tab.center = (self.fgRect.right, self.bgRect.centery)
+
+    def draw(self):
+        pygame.draw.rect(self.surface, self.bgColor, self.bgRect)
+        pygame.draw.rect(self.surface, self.fgColor, self.fgRect)
+        pygame.draw.rect(self.surface, constant.colorBlack, self.tab)
+
+
+def mainMenu():
+
+    gameInt()
+
+    menuRunning = True
+
+    title = "Tower of Terror"
+    titleX = constant.cameraWidth//2
+    titleY = constant.cameraHeight//2 - 40
+
+    # Button Stuff
+    continueBY = titleY + 40
+    newGameBY = continueBY + 40
+    optionsBY = newGameBY + 40
+    quitBY = optionsBY + 40
+
+    mainSurface.blit(asset.mainMenuBG, (0, 0))
+
+    drawText(mainSurface, title, constant.titleFont,
+             (titleX, titleY), constant.colorRed, center=True)
+
+    continueB = Button(mainSurface, "Continue", (200, 30),
+                       (constant.cameraWidth//2, continueBY))
+
+    newGameB = Button(mainSurface, "New Game", (200, 30),
+                      (constant.cameraWidth // 2, newGameBY))
+
+    optionsB = Button(mainSurface, "Options", (200, 30),
+                      (constant.cameraWidth // 2, optionsBY))
+
+    quitB = Button(mainSurface, "Quit Game", (200, 30),
+                   (constant.cameraWidth // 2, quitBY))
+
+    pygame.mixer.music.load(asset.bgMusic)
+    pygame.mixer.music.play(-1)
+
+    while menuRunning:
+        eventList = pygame.event.get()
+        mousePos = pygame.mouse.get_pos()
+
+        gameInput = (eventList, mousePos)
+
+        # Handle events and buttons
+        for event in eventList:
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+        if continueB.update(gameInput):
+            pygame.mixer.music.stop()
+            # Load game
+            pygame.mixer.music.load(asset.bgGame)
+            pygame.mixer.music.play(-1)
+
+            try:
+                loadGame()
+            except:
+                newGame()
+
+            gameLoop()
+
+        if newGameB.update(gameInput):
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(asset.bgGame)
+            pygame.mixer.music.play(-1)
+            newGame()
+            gameLoop()
+
+        if optionsB.update(gameInput):
+            menuOptions()
+            # Re-draw main menu when exiting options
+            mainSurface.blit(asset.mainMenuBG, (0, 0))
+            drawText(mainSurface, title, constant.titleFont,
+                     (titleX, titleY), constant.colorRed, center=True)
+
+        if quitB.update(gameInput):
+            pygame.quit()
+            exit()
+
+        # draw
+        continueB.draw()
+        newGameB.draw()
+        optionsB.draw()
+        quitB.draw()
+
+        # update
+        pygame.display.update()
+
+
+def menuOptions():
+
+    width = 200
+    height = 200
+    bgColor = constant.colorGrey
+    center = (constant.cameraWidth // 2, constant.cameraHeight // 2)
+
+    sliderX = constant.cameraWidth//2
+    soundSliderY = constant.cameraHeight//2 - 60
+    musicSliderY = soundSliderY + 50
+
+    soundTextY = soundSliderY - 20
+    musicTextY = musicSliderY - 20
+
+    saveBY = musicSliderY + 50
+
+    optionsSurface = pygame.Surface((width, height))
+
+    menuRect = pygame.Rect(0, 0, width, height)
+    menuRect.center = center
+
+    closed = False
+
+    mainSurface.blit(optionsSurface, menuRect.topleft)
+
+    soundSlider = Slider(mainSurface, (125, 15), (sliderX, soundSliderY),
+                         constant.colorRed, constant.colorGreen, preferences.soundVol)
+
+    musicSlider = Slider(mainSurface, (125, 15), (sliderX, musicSliderY),
+                         constant.colorRed, constant.colorGreen, preferences.musicVol)
+
+    saveB = Button(mainSurface, "Save", (70, 30), (sliderX, saveBY), constant.colorDDGrey,
+                   constant.colorDGrey, constant.colorBlack, constant.colorBlack)
+
+    while not closed:
+
+        eventList = pygame.event.get()
+        mousePos = pygame.mouse.get_pos()
+
+        gameInput = (eventList, mousePos)
+
+        # Handle events and buttons
+        for event in eventList:
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    closed = True
+
+        soundVol = preferences.soundVol
+        musicVol = preferences.musicVol
+
+        soundSlider.update(gameInput)
+        musicSlider.update(gameInput)
+
+        if soundVol is not soundSlider.value:
+            preferences.soundVol = soundVol
+            asset.adjustSound()
+
+        if musicVol is not musicSlider.value:
+            preferences.musicVol = musicVol
+            asset.adjustSound()
+
+        if saveB.update(gameInput):
+            savePreferences()
+            closed = True
+
+        # Start Drawing
+        optionsSurface.fill(bgColor)
+        mainSurface.blit(optionsSurface, menuRect.topleft)
+
+        drawText(mainSurface, "Sound Volume", constant.debugFont, (sliderX, soundTextY),
+                 constant.colorBlack, center=True)
+
+        drawText(mainSurface, "Music Volume", constant.debugFont, (sliderX, musicTextY),
+                 constant.colorBlack, center=True)
+
+        soundSlider.draw()
+        musicSlider.draw()
+        saveB.draw()
+
+        pygame.display.update()
+
+
 def menuInventory():
     isClosed = False
     menuWidth = 200
@@ -1192,7 +1514,7 @@ def gen_player(coords):
 
     container = Container()
     creature = Creature("Evan", baseAttack=4)
-    player = Actor(x, y, "python", "player", animateSpeed=1, creature=creature,
+    player = Actor(x, y, "Wizard", "player", animateSpeed=1, creature=creature,
                    container=container)
 
     game.currentObjects.append(player)
@@ -1394,10 +1716,15 @@ def gameLoop():
 
 
 def gameInt():
-    global mainSurface, mapSurface, clock, calcFov, enemy, asset, camera
+    global mainSurface, mapSurface, clock, calcFov, enemy, asset, camera, randomness, preferences
 
     pygame.init()
     pygame.key.set_repeat(200, 70)
+
+    try:
+        loadPreferences()
+    except:
+        preferences = Preferences()
 
     mainSurface = pygame.display.set_mode((constant.cameraWidth, constant.cameraHeight))
 
@@ -1410,13 +1737,9 @@ def gameInt():
 
     clock = pygame.time.Clock()
 
-    calcFov = True
+    randomness = random.SystemRandom()
 
-    # Create Game Stuff
-    try:
-        loadGame()
-    except:
-        newGame()
+    calcFov = True
 
 
 def newGame():
@@ -1524,10 +1847,18 @@ def loadGame():
     makeMapFov(game.currentMap)
 
 
+def savePreferences():
+    with gzip.open('data\\userPrefs', 'wb') as file:
+        pickle.dump(preferences, file)
 
 
-gameInt()
-gameLoop()
+def loadPreferences():
+    global preferences
+
+    with gzip.open('data\\userPrefs', 'rb') as file:
+        preferences = pickle.load(file)
+
+mainMenu()
 
 
 

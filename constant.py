@@ -13,9 +13,9 @@ gameFPS = 60
 cameraSpeed = .10
 
 #Map
-mapWidth = 20
-mapHeight = 20
-mapMaxNumRooms = 10
+mapWidth = 45
+mapHeight = 45
+mapMaxNumRooms = 15
 
 #Room
 roomMaxHeight = 7
@@ -27,6 +27,8 @@ roomMinWidth = 3
 colorBlack = (0, 0, 0)
 colorWhite = (255, 255, 255)
 colorGrey = (100, 100, 100)
+colorDGrey = (50, 50, 50)
+colorDDGrey = (25, 25, 25)
 colorRed = (255, 0, 0)
 colorGreen = (0, 255, 0)
 colorBlue = (0, 0, 255)
@@ -43,6 +45,7 @@ radius = 10
 numMessages = 4
 
 # Fonts
+titleFont = pygame.font.Font("data/joystix.ttf", 26)
 debugFont = pygame.font.Font("data/joystix.ttf", 20)
 messageTextFont = pygame.font.Font("data/joystix.ttf", 12)
 cursorFont = pygame.font.Font("data/joystix.ttf", cellHeight)
