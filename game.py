@@ -5,6 +5,7 @@ import math
 import pickle
 import gzip
 import random
+import time
 
 
 class Tile:
@@ -66,6 +67,13 @@ class Assets:
 
         # Backgrounds
         self.mainMenuBG = pygame.image.load("data/graphics/tower.jpg")
+        self.title = pygame.image.load("data/graphics/title.png")
+        self.title1 = pygame.image.load("data/graphics/title1.png")
+        self.title2 = pygame.image.load("data/graphics/title2.png")
+        self.title3 = pygame.image.load("data/graphics/title3.png")
+        self.title4 = pygame.image.load("data/graphics/title4.png")
+        self.title5 = pygame.image.load("data/graphics/title5.png")
+
         # Just in case someone changes the camera size (please don't do that)
         self.mainMenuBG = pygame.transform.scale(self.mainMenuBG, (constant.cameraWidth, constant.cameraHeight))
 
@@ -215,7 +223,10 @@ class Actor:
 
         self.animation = asset.aniDict[self.animationKey]
 
-dLvl = 1 # which floor you are on
+
+dLvl = 1  # which floor you are on
+
+
 class GameObject:
     def __init__(self):
         self.currentObjects = []
@@ -1210,9 +1221,9 @@ def mainMenu():
 
     menuRunning = True
 
-    title = "Tower of Terror"
     titleX = constant.cameraWidth//2
     titleY = constant.cameraHeight//2 - 40
+    titleani = [asset.title1, asset.title2, asset.title3, asset.title4, asset.title5]
 
     # Button Stuff
     continueBY = titleY + 40
@@ -1221,9 +1232,6 @@ def mainMenu():
     quitBY = optionsBY + 40
 
     mainSurface.blit(asset.mainMenuBG, (0, 0))
-
-    drawText(mainSurface, title, constant.titleFont,
-             (titleX, titleY), constant.colorRed, center=True)
 
     continueB = Button(mainSurface, "Continue", (200, 30),
                        (constant.cameraWidth//2, continueBY))
@@ -1240,7 +1248,16 @@ def mainMenu():
     pygame.mixer.music.load(asset.bgMusic)
     pygame.mixer.music.play(-1)
 
+    i = 0
+
     while menuRunning:
+
+        if i > 4:
+            i = 0
+
+        mainSurface.blit(titleani[i], (150, 180))
+        i += 1
+        time.sleep(0.1)
         eventList = pygame.event.get()
         mousePos = pygame.mouse.get_pos()
 
