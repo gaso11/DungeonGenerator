@@ -6,6 +6,7 @@ import pickle
 import gzip
 import random
 import time
+import datetime
 
 
 class Tile:
@@ -73,9 +74,12 @@ class Assets:
         self.title3 = pygame.image.load("data/graphics/title3.png")
         self.title4 = pygame.image.load("data/graphics/title4.png")
         self.title5 = pygame.image.load("data/graphics/title5.png")
+        self.youdied = pygame.image.load("data/graphics/youdiedtest.png")
 
         # Just in case someone changes the camera size (please don't do that)
         self.mainMenuBG = pygame.transform.scale(self.mainMenuBG, (constant.cameraWidth, constant.cameraHeight))
+        self.youdied = pygame.transform.scale(self.youdied, (constant.cameraWidth, constant.cameraHeight))
+
 
         self.aniDict = {
             "player" : self.player,
@@ -101,6 +105,7 @@ class Assets:
         self.hit2 = self.addSound("data/audio/hit2.wav")
         self.hit3 = self.addSound("data/audio/hit3.wav")
         self.hit4 = self.addSound("data/audio/hit4.wav")
+        self.death = self.addSound("data/audio/death.wav")
 
         self.hitList = [self.hit1, self.hit2, self.hit3, self.hit4]
 
@@ -122,7 +127,7 @@ class Assets:
 class Actor:
     def __init__(self, x, y, name, animationKey, animateSpeed=.5,
                  creature=None, ai=None, container=None, item=None, equipment=None,
-                 stairs=None, depth=0):
+                 stairs=None, depth=0, state=None):
         self.x = x
         self.y = y
         self.name = name
@@ -130,6 +135,7 @@ class Actor:
         self.animation = asset.aniDict[self.animationKey]
         self.animateSpeed = animateSpeed / 1.0  # It demands a float
         self.depth = depth
+        self.state = state
 
         self.flickerSpeed = self.animateSpeed / len(self.animation)
         self.flickerTimer = 0.0
@@ -462,7 +468,7 @@ class Creature:
 
         target.creature.takeDamage(damage)
         if target == player and player.creature.hp <= 0:
-            deathPlayer()
+            deathPlayer(player)
 
         if damage > 0 and self.owner is player:
             pygame.mixer.Sound.play(randomness.choice(asset.hitList))
@@ -622,12 +628,6 @@ class Container:
         return equippedList
 
 
-def deathPlayer():
-    gameMessage("you have died!", constant.colorGrey)
-
-    player.animation = asset.playerGhost
-
-
 class AIConfuse:
 
     def __init__(self, oldAI, turns):
@@ -658,6 +658,29 @@ class AIChase:
 
             elif player.creature.hp > 0:
                 monster.creature.attack(player)
+
+
+def deathPlayer(player):
+
+    player.state = "DEAD"
+    player.creature.hp = 0
+    player.animation = asset.playerGhost
+    youdied = asset.youdied
+
+    mainSurface.blit(youdied, (0, 0))
+    pygame.mixer.Sound.play(asset.death)
+
+    pygame.display.update()
+
+    filename = ("data\playerInfo\\" + player.creature.name + "." +
+                datetime.date.today().strftime("%Y%B%d"))
+
+    deathFile = open(filename, 'a+')
+
+    for message, color in game.messageHistory:
+        deathFile.write(message + "\n")
+
+    pygame.time.wait(3000)
 
 
 def deathSnake(monster):
@@ -917,11 +940,12 @@ def draw():
 
 def drawDebug():
     global dLvl
-    #    drawText(mainSurface, "fps: "    + str(int(clock.get_fps())),   constant.debugFont, (0, 0),
+
     drawText(mainSurface, "health: " + str(int(player.creature.hp)),
-              constant.debugFont,
-              (constant.cameraWidth-180, constant.cameraHeight-60),
+             constant.debugFont,
+             (constant.cameraWidth-180, constant.cameraHeight-60),
              constant.colorWhite, constant.colorBlack)
+
     drawText(mainSurface, "level: " + str(int(dLvl)),
              constant.debugFont,
              (constant.cameraWidth-180, constant.cameraHeight-30),
@@ -1231,8 +1255,6 @@ def mainMenu():
     optionsBY = newGameBY + 40
     quitBY = optionsBY + 40
 
-    mainSurface.blit(asset.mainMenuBG, (0, 0))
-
     continueB = Button(mainSurface, "Continue", (200, 30),
                        (constant.cameraWidth//2, continueBY))
 
@@ -1252,12 +1274,6 @@ def mainMenu():
 
     while menuRunning:
 
-        if i > 4:
-            i = 0
-
-        mainSurface.blit(titleani[i], (150, 180))
-        i += 1
-        time.sleep(0.1)
         eventList = pygame.event.get()
         mousePos = pygame.mouse.get_pos()
 
@@ -1291,14 +1307,20 @@ def mainMenu():
 
         if optionsB.update(gameInput):
             menuOptions()
-            # Re-draw main menu when exiting options
-            mainSurface.blit(asset.mainMenuBG, (0, 0))
-            drawText(mainSurface, title, constant.titleFont,
-                     (titleX, titleY), constant.colorRed, center=True)
 
         if quitB.update(gameInput):
             pygame.quit()
             exit()
+
+        mainSurface.blit(asset.mainMenuBG, (0, 0))
+
+        if i > 4:
+            i = 0
+
+        mainSurface.blit(titleani[i], (150, 180))
+        i += 1
+        time.sleep(0.1)
+
 
         # draw
         continueB.draw()
@@ -1541,7 +1563,7 @@ def gen_player(coords):
     x, y = coords
 
     container = Container()
-    creature = Creature("Evan", baseAttack=4)
+    creature = Creature("Evan", baseAttack=4, deathFunction=deathPlayer)
     player = Actor(x, y, "Wizard", "player", animateSpeed=1, creature=creature,
                    container=container)
 
@@ -1736,6 +1758,9 @@ def gameLoop():
                 if obj.ai:
                     obj.ai.takeTurn()
 
+        if player.state is "DEAD":
+            quit = True
+
         # draw
         draw()
 
@@ -1859,14 +1884,14 @@ def saveGame():
 
     # Save and encrypt (because we are that concerned with people hacking their save data)
     # this also compresses files in case you have 100 maps or something
-    with gzip.open('data\savedata', 'wb') as file:
+    with gzip.open('data\playerInfo\savedata', 'wb') as file:
         pickle.dump([game, player], file)
 
 
 def loadGame():
     global game, player
 
-    with gzip.open('data\savedata', 'rb') as file:
+    with gzip.open('data\playerInfo\savedata', 'rb') as file:
         game, player = pickle.load(file)
 
     for obj in game.currentObjects:
@@ -1876,7 +1901,7 @@ def loadGame():
 
 
 def savePreferences():
-    with gzip.open('data\\userPrefs', 'wb') as file:
+    with gzip.open('data\playerInfo\\userPrefs', 'wb') as file:
         pickle.dump(preferences, file)
 
 
