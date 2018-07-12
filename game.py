@@ -45,8 +45,8 @@ class Assets:
         self.flesh = SpriteSheet("data/graphics/items/Flesh.png")
         self.food = SpriteSheet("data/graphics/items/Food.png")
         self.tile = SpriteSheet("data/graphics/objects/tile.png")
-        self.misc = SpriteSheet("Data/graphics/Items/Light.png")
-        self.doors = SpriteSheet("Data/graphics/objects/door.png")
+        self.misc = SpriteSheet("data/graphics/Items/Light.png")
+        self.doors = SpriteSheet("data/graphics/objects/door.png")
         self.stuff = SpriteSheet("data/graphics/objects/decor.png")
 
         # Animations
