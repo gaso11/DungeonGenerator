@@ -16,6 +16,7 @@ cameraSpeed = .10
 mapWidth = 45
 mapHeight = 45
 mapMaxNumRooms = 15
+mapLevels = 3
 
 #Room
 roomMaxHeight = 7

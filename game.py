@@ -7,6 +7,7 @@ import gzip
 import random
 import time
 import datetime
+import os
 
 
 class Tile:
@@ -44,12 +45,16 @@ class Assets:
         self.flesh = SpriteSheet("data/graphics/items/Flesh.png")
         self.food = SpriteSheet("data/graphics/items/Food.png")
         self.tile = SpriteSheet("data/graphics/objects/tile.png")
+        self.misc = SpriteSheet("Data/graphics/Items/Light.png")
+        self.doors = SpriteSheet("Data/graphics/objects/door.png")
+        self.stuff = SpriteSheet("data/graphics/objects/decor.png")
 
         # Animations
         self.player = self.players.getAnimation('m', 4, 16, 16, 2, (32, 32))
         self.snake1 = self.enemies.getAnimation('a', 5, 16, 16, 4, (32, 32))
         self.snake2 = self.enemies.getAnimation('k', 5, 16, 16, 2, (32, 32))
         self.playerGhost = self.undead.getAnimation('e', 5, 16, 16, 2, (32, 32))
+        self.doorOpened = self.doors.getAnimation('k', 6, 16, 16, 2, (32, 32))
 
         # Sprites
         self.wall = self.walls.getImage('d', 4, 16, 16, (32, 32))[0]
@@ -65,6 +70,9 @@ class Assets:
         self.carrot = self.food.getImage('a', 4, 16, 16, (32, 32))
         self.upStairs = self.tile.getImage('e', 2, 16, 16, (32, 32))
         self.downStairs = self.tile.getImage('f', 2, 16, 16, (32, 32))
+        self.magicLamp = self.misc.getImage('e', 1, 16, 16, (32, 32))
+        self.doorClosed = self.doors.getImage('j', 6, 16, 16, (32, 32))
+        self.sign = self.stuff.getImage('c', 18, 16, 16, (32, 32))
 
         # Backgrounds
         self.mainMenuBG = pygame.image.load("data/graphics/tower.jpg")
@@ -80,8 +88,8 @@ class Assets:
         self.mainMenuBG = pygame.transform.scale(self.mainMenuBG, (constant.cameraWidth, constant.cameraHeight))
         self.youdied = pygame.transform.scale(self.youdied, (constant.cameraWidth, constant.cameraHeight))
 
-
         self.aniDict = {
+
             "player" : self.player,
             "snake1" : self.snake1,
             "snake2" : self.snake2,
@@ -93,7 +101,11 @@ class Assets:
             "carrot" : self.carrot,
             "flesh1" : self.deadSnake,
             "upStairs" : self.upStairs,
-            "downStairs" : self.downStairs
+            "downStairs" : self.downStairs,
+            "magicLamp" : self.magicLamp,
+            "doorClosed" : self.doorClosed,
+            "doorOpened": self.doorOpened,
+            "sign" : self.sign
         }
 
         tcod.namegen_parse("data/namegen/jice_celtic.cfg")
@@ -127,7 +139,7 @@ class Assets:
 class Actor:
     def __init__(self, x, y, name, animationKey, animateSpeed=.5,
                  creature=None, ai=None, container=None, item=None, equipment=None,
-                 stairs=None, depth=0, state=None):
+                 stairs=None, depth=0, state=None, exitportal=None):
         self.x = x
         self.y = y
         self.name = name
@@ -168,8 +180,9 @@ class Actor:
         if self.stairs:
             self.stairs.owner = self
 
-            self.item = Item()
-            self.item.owner = self
+        self.exitportal = exitportal
+        if self.exitportal:
+            self.exitportal.owner = self
 
     @property
     def displayName(self):
@@ -521,7 +534,7 @@ class Creature:
 
 
 class Item:
-    def __init__(self, weight = 0.0, volume = 0.0, use_function = None, value = None):
+    def __init__(self, weight = 0.0, volume = 0.0, use_function=None, value=None):
         self.weight = weight
         self.volume = volume
         self.use_function = use_function
@@ -610,10 +623,53 @@ class Stairs:
             game.prevMap()
 
 
+class ExitDoor:
+    def __init__(self):
+        self.opening = "doorOpened"
+        self.closing = "doorClosed"
+
+    def update(self):
+
+        foundLamp = False
+
+        isOpen = self.owner.state == "Open"
+
+        for obj in player.container.inventory:
+            if obj.name == "The Lamp":
+                foundLamp = True
+
+        if foundLamp and not isOpen:
+            self.owner.state = "Open"
+            self.owner.animationKey = self.opening
+            self.owner.resurrect()
+
+        if not foundLamp and isOpen:
+            self.owner.state = "Closed"
+            self.owner.animationKey = self.closing
+            self.owner.resurrect()
+
+    def use(self):
+
+        if self.owner.state == "Open":
+            player.state = "win"
+            mainSurface.fill(constant.colorWhite)
+            center = (constant.cameraWidth/2, constant.cameraHeight/2)
+
+            drawText(mainSurface, "YOU WIN!", constant.titleFont, center, constant.colorBlack, center=True)
+
+            pygame.display.update()
+
+            pygame.time.wait(3000)
+
+
 class Container:
-    def __init__(self, volume = 10.0, inventory = []):
+    def __init__(self, volume = 10.0, inventory = None):
         self.inventory = inventory
         self.maxVol = volume
+        if inventory:
+            self.inventory = inventory
+        else:
+            self.inventory = []
 
     @property
     def volume(self):
@@ -733,7 +789,10 @@ def createMap():
 
 def placeObjects(roomList):
 
-    firstLevel = (len(game.prevMaps))
+    currentLevel = len(game.prevMaps) + 1
+
+    firstLevel = (currentLevel == 1)
+    finalLevel = (currentLevel == constant.mapLevels)
 
     for room in roomList:
 
@@ -744,10 +803,18 @@ def placeObjects(roomList):
             player.x, player.y = room.center
 
         if firstRoom and firstLevel:
+            genDoor(room.center)
+            genSign((player.x + 1, player.y - 1))
+
+        if firstRoom and not firstLevel:
             genStairs((player.x, player.y), up=False)
 
         if lastRoom:
-            genStairs(room.center)
+            if finalLevel:
+                genLamp(room.center)
+            else:
+                genStairs(room.center)
+
 
 
         # Get random coords inside the room
@@ -1110,6 +1177,49 @@ def castConfusion(caster, turns):
             gameMessage("The creatures are confused!", constant.colorGreen)
 
 
+def readSign(caster, value):
+    print("Sign has been read")
+    width = 480
+    height = 100
+    windowWidth = constant.cameraWidth
+    windowHeight = constant.cameraHeight
+    menuX = (windowWidth / 2) - (width / 2)
+    menuY = (windowHeight / 2) - (height / 2)
+    isClosed = False
+
+    signSurface = pygame.Surface((width, height))
+
+    while not isClosed:
+        signSurface.fill(constant.colorBlack)
+
+        eventsList = pygame.event.get()
+
+        for event in eventsList:
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button == 1:
+                    isClosed = True
+
+        drawText(signSurface,
+                 "Snakes have poor vision, this makes it hard to",
+                 constant.messageTextFont, (0, 0), color=constant.colorWhite)
+
+        drawText(signSurface,
+                 "follow people around corners...hint hint",
+                 constant.messageTextFont, (0, 15), color=constant.colorWhite)
+
+        drawText(signSurface,
+                 "Game made by Evan, Tyler, George",
+                 constant.messageTextFont, (0, 80), color=constant.colorWhite)
+
+        draw()
+
+        mainSurface.blit(signSurface, (menuX, menuY))
+
+        clock.tick(constant.gameFPS)
+
+        pygame.display.update()
+
+
 def menuPause():
     isClosed = False
 
@@ -1304,6 +1414,7 @@ def mainMenu():
             pygame.mixer.music.play(-1)
             newGame()
             gameLoop()
+            gameInt()
 
         if optionsB.update(gameInput):
             menuOptions()
@@ -1465,7 +1576,6 @@ def menuInventory():
                     if mouseInWindow and mouseSelect <= len(printList) - 1:
                         player.container.inventory[mouseSelect].item.drop(player.x, player.y)
 
-
         for line, (name) in enumerate(printList):
             if line == mouseSelect and mouseInWindow:
                 drawText(invSurface, name, menuFont, (0, 0 + (line * menuTextHeight)), color, constant.colorGrey)
@@ -1562,8 +1672,9 @@ def gen_player(coords):
 
     x, y = coords
 
+    # TODO: put player attack and defense to a normal number
     container = Container()
-    creature = Creature("Evan", baseAttack=4, deathFunction=deathPlayer)
+    creature = Creature("Evan", baseAttack=40, baseDefense=40, deathFunction=deathPlayer)
     player = Actor(x, y, "Wizard", "player", animateSpeed=1, creature=creature,
                    container=container)
 
@@ -1584,6 +1695,37 @@ def genStairs(coords, up=True):
                        depth=constant.backgroundDepth)
 
     game.currentObjects.append(stairs)
+
+
+def genDoor(coords):
+
+    x, y = coords
+    dor = ExitDoor()
+    door = Actor(x, y, "exit door", animationKey="doorClosed", depth=constant.backgroundDepth,
+                 exitportal=dor)
+
+    game.currentObjects.append(door)
+
+
+def genLamp(coords):
+
+    x, y =coords
+
+    item = Item()
+
+    returnobj = Actor(x, y, "The Lamp", animationKey="magicLamp", depth=constant.itemDepth, item=item)
+
+    game.currentObjects.append(returnobj)
+
+
+def genSign(coords):
+    x, y = coords
+
+    item = Item(use_function=readSign)
+
+    returnobj = Actor(x, y, "Sign", "sign", depth=constant.itemDepth, item=item)
+
+    game.currentObjects.append(returnobj)
 
 
 def genItem(coords):
@@ -1753,12 +1895,14 @@ def gameLoop():
         if playerAct == "QUIT":
             quitGame()
 
-        elif playerAct != "no-action":
-            for obj in game.currentObjects:
-                if obj.ai:
+        for obj in game.currentObjects:
+            if obj.ai:
+                if playerAct != "no-action":
                     obj.ai.takeTurn()
+            if obj.exitportal:
+                obj.exitportal.update()
 
-        if player.state is "DEAD":
+        if player.state == "DEAD" or player.state == "win":
             quit = True
 
         # draw
@@ -1860,6 +2004,8 @@ def handleKeys():
                 for obj in objList:
                     if obj.stairs:
                         obj.stairs.use()
+                    if obj.exitportal:
+                        obj.exitportal.use()
 
     return "no-action"
 
@@ -1910,6 +2056,7 @@ def loadPreferences():
 
     with gzip.open('data\\userPrefs', 'rb') as file:
         preferences = pickle.load(file)
+
 
 mainMenu()
 
